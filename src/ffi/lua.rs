@@ -1,6 +1,7 @@
 #![allow(non_camel_case_types)]
 use libc::{c_int, c_uchar, c_schar, c_double, c_void, size_t, ptrdiff_t};
 use super::lauxlib::luaL_newstate;
+use std::ptr;
 
 pub const LUA_VERSION: &'static [c_uchar] = b"Lua 5.1\x00";
 pub const LUA_RELEASE: &'static [c_uchar] = b"Lua 5.1.4\x00";
@@ -19,7 +20,8 @@ pub fn lua_upvalueindex(i: i32) -> c_int {
     LUA_GLOBALSINDEX - i
 }
 
-pub const LUA_YIELD: c_int	= 1;
+pub const LUA_OK: c_int = 0;
+pub const LUA_YIELD: c_int = 1;
 pub const LUA_ERRRUN: c_int = 2;
 pub const LUA_ERRSYNTAX: c_int = 3;
 pub const LUA_ERRMEM: c_int = 4;
@@ -234,8 +236,8 @@ pub unsafe fn lua_getglobal(state: *mut lua_State, s: *const c_schar) {
 }
 
 #[inline(always)]
-pub unsafe fn lua_tostring(state: *mut lua_State, i: c_int) {
-    lua_tolstring(state, i, 0 as *mut size_t);
+pub unsafe fn lua_tostring(state: *mut lua_State, i: c_int) -> *const c_schar {
+    lua_tolstring(state, i, ptr::null_mut())
 }
 
 #[inline(always)]

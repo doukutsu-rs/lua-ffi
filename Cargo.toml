@@ -2,6 +2,7 @@
 name = "luajit"
 version = "0.1.0"
 authors = ["Dreae <dreae@dreae.onl>"]
+build = "build.rs"
 
 [dependencies]
 libc = "0.2.32"
