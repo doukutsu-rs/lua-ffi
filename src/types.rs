@@ -84,3 +84,7 @@ impl LuaValue for LuaFunction {
 }
 
 pub type LuaFunction = unsafe extern "C" fn(L: *mut ffi::lua_State) -> c_int;
+
+pub trait LuaObject {
+    fn lua_fns() -> Vec<ffi::luaL_Reg>;
+}

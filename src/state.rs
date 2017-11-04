@@ -1,8 +1,9 @@
 use super::ffi::*;
 use std::ffi::{CString, CStr};
-use libc::c_int;
+use libc::{c_int, c_void};
+use std::{mem, ptr};
 
-use super::types::{LuaValue, LuaFunction};
+use super::types::{LuaValue, LuaFunction, LuaObject};
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum ThreadStatus {
@@ -138,6 +139,20 @@ impl State {
     pub fn open_ffi(&mut self) {
         unsafe {
             luaopen_ffi(self.state);
+        }
+    }
+
+    /// Sets the top of the stack to the valid index `idx`
+    pub fn settop(&mut self, idx: i32) {
+        unsafe {
+            lua_settop(self.state, idx);
+        }
+    }
+
+    /// Pops a value from the top of the stack
+    pub fn pop(&mut self, n: i32) {
+        unsafe {
+            lua_pop(self.state, n);
         }
     }
 
@@ -307,6 +322,58 @@ impl State {
         }
     }
 
+    pub fn check_userdata<T>(&mut self, idx: i32, t: &str) -> Option<*mut T> {
+        unsafe {
+            let udata = luaL_checkudata(self.state, idx, CString::new(t).unwrap().as_ptr());
+
+            if udata == ptr::null_mut() {
+                None
+            } else {
+                Some(udata as *mut T)
+            }
+        }
+    }
+
+    /// Pops a value of the Lua stack and sets it as a global value
+    /// named `name`
+    pub fn set_global(&mut self, name: &str) {
+        unsafe {
+            lua_setglobal(self.state, CString::new(name).unwrap().as_ptr());
+        }
+    }
+
+    /// Sets the value of `name` on the table `t` pointed
+    /// to by `idx` as the value on the top of the stack.
+    /// 
+    /// Equivalent to `t[name] = v` where `t` is the value at
+    /// `idx` and `v` is the value at the top of the stack
+    pub fn set_field(&mut self, idx: i32, name: &str) {
+        unsafe {
+            lua_setfield(self.state, idx, CString::new(name).unwrap().as_ptr());
+        }
+    }
+
+    /// Registers all functions in `fns` on the global table `name`. If name
+    /// is `None`, all functions are instead registered on the value on the top
+    /// of the stack.
+    pub fn register_fns(&mut self, name: Option<&str>, fns: Vec<luaL_Reg>) {
+        match name {
+            Some(s) => unsafe {
+                luaL_register(self.state, CString::new(s).unwrap().as_ptr(), fns.as_ptr());
+            },
+            None => unsafe {
+                luaL_register(self.state, ptr::null(), fns.as_ptr());
+            }
+        }
+    }
+
+    /// Copys the value at `idx` to the top of the stack
+    pub fn push_value(&mut self, idx: i32) {
+        unsafe {
+            lua_pushvalue(self.state, idx);
+        }
+    }
+
     /// Pushes a LuaValue to the lua stack.
     /// 
     /// # Examples
@@ -315,11 +382,104 @@ impl State {
     /// use luajit::State;
     /// 
     /// let mut state = State::new();
-    /// state.push_value(5);
-    /// state.push_value("Hello world!");
+    /// state.push(5);
+    /// state.push("Hello world!");
     /// ```
-    pub fn push_value<T>(&mut self, val: T) where T: LuaValue {
+    pub fn push<T>(&mut self, val: T) where T: LuaValue {
         val.push_val(self.state);
+    }
+
+    /// Creates a new table and pushes it to the top of the stack
+    pub fn new_table(&mut self) {
+        unsafe {
+            lua_newtable(self.state);
+        }
+    }
+
+    /// Allocates a new Lua userdata block, and returns the pointer
+    /// to it. The returned pointer is owned by the Lua state.
+    pub fn new_raw_userdata(&mut self, sz: usize) -> *mut c_void {
+        unsafe {
+            lua_newuserdata(self.state, sz)
+        }
+    }
+
+    /// Allocates a new Lua userdata block of size `sizeof(T)` for
+    /// use to store Rust objects on the Lua stack. The returned
+    /// pointer is owned by the Lua state.
+    pub fn new_userdata<T>(&mut self) -> *mut T {
+        self.new_raw_userdata(mem::size_of::<T>()) as *mut T
+    }
+
+    /// Allocates a userdata object on the Lua stack for storing a rust struct.
+    /// This method also sets the userdata object's metatable to the metatable
+    /// saved for `struct_type`, it will call `lua_fns` and create a new metatable
+    /// to store in the Lua registry if one has not already been created.
+    /// 
+    /// # Examples
+    /// 
+    /// ```
+    /// use luajit::{State, LuaObject, c_int};
+    /// use luajit::ffi::{lua_State, luaL_Reg};
+    /// 
+    /// struct Point2D {
+    ///     x: i32,
+    ///     y: i32,
+    /// }
+    /// 
+    /// impl LuaObject for Point2D {
+    ///     fn lua_fns() -> Vec<luaL_Reg> {
+    ///         vec!(luaL_Reg {
+    ///             name: b"add\x00".as_ptr() as *const i8,
+    ///             func: Some(Point2D::add),
+    ///         })
+    ///     }
+    /// }
+    /// 
+    /// impl Point2D {
+    ///     extern "C" fn add(state: *mut lua_State) -> c_int {
+    ///         let mut state = State::from_ptr(state);
+    ///         let point = unsafe { &*(state.check_userdata::<Point2D>(1, "Point2D").unwrap()) };
+    /// 
+    ///         state.push(point.x + point.y);
+    /// 
+    ///         1
+    ///     }
+    /// 
+    ///     fn new() -> Point2D {
+    ///         Point2D {
+    ///             x: 0,
+    ///             y: 0,
+    ///         }
+    ///     }
+    /// }
+    /// 
+    /// let mut state = State::new();
+    /// state.open_libs();
+    /// unsafe {
+    ///     *state.new_struct("Point2D") = Point2D::new();
+    /// }
+    /// state.set_global("point");
+    /// state.do_string(r#"print("point:add()""#);
+    /// ```
+    pub fn new_struct<T>(&mut self, struct_type: &str) -> *mut T where T: LuaObject {
+        let userdata = self.new_userdata(); 
+
+        unsafe {
+            if luaL_newmetatable(self.state, CString::new(struct_type).unwrap().as_ptr()) == 1 {
+                self.new_table();
+                self.register_fns(None, T::lua_fns());
+
+                self.push_value(-1);
+                self.set_global(struct_type);
+
+                self.set_field(-2, "__index");
+            }
+
+            lua_setmetatable(self.state, -2);
+        }
+
+        userdata
     }
 }
 
