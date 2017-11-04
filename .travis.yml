@@ -6,3 +6,10 @@ rust:
 before_install:
   - sudo apt-get -qq update
   - sudo apt-get install -y libluajit-5.1-dev
+deploy:
+  provider: pages
+  skip_cleanup: true
+  github_token: $GITHUB_TOKEN
+  local_dir: target/doc/
+  on:
+    branch: master
