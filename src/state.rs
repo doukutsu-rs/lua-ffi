@@ -2,6 +2,7 @@ use super::ffi::*;
 use std::ffi::{CString, CStr};
 use libc::{c_int, c_void};
 use std::{mem, ptr};
+use std::path::Path;
 
 use super::types::{LuaValue, LuaFunction, LuaObject};
 
@@ -13,6 +14,7 @@ pub enum ThreadStatus {
     SyntaxError = LUA_ERRSYNTAX as isize,
     MemoryError = LUA_ERRMEM as isize,
     MsgHandlerError = LUA_ERRERR as isize,
+    FileError = LUA_ERRFILE as isize,
     Unknown
 }
 
@@ -25,6 +27,7 @@ impl From<c_int> for ThreadStatus {
             LUA_ERRSYNTAX => ThreadStatus::SyntaxError,
             LUA_ERRMEM => ThreadStatus::MemoryError,
             LUA_ERRERR => ThreadStatus::MsgHandlerError,
+            LUA_ERRFILE => ThreadStatus::FileError,
             _ => ThreadStatus::Unknown
         }
     }
@@ -175,6 +178,35 @@ impl State {
             luaL_dostring(self.state, cstr.as_ptr()).into()
         }
     }
+
+    /// Maps to `lua_call`, calls the function on the top of the
+    /// stack. 
+    pub fn call(&mut self, nargs: i32, nres: i32) {
+        unsafe {
+            lua_call(self.state, nargs, nres);
+        }
+    }
+
+    /// Maps to `lua_pcall` and automatically catches an error, returning
+    /// the string on the top of the stack as an `Err` result.
+    pub fn pcall(&mut self, nargs: i32, nres: i32, err_func: i32) -> Result<(), (ThreadStatus, String)> {
+        let res: ThreadStatus = unsafe {
+            lua_pcall(self.state, nargs, nres, err_func).into()
+        };
+
+        if res != ThreadStatus::Ok {
+            Err((res, self.to_str(-1).unwrap_or_default().to_owned()))
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Maps directly to `lua_pcall` without additional handling.
+    pub fn pcallx(&mut self, nargs: i32, nres: i32, err_func: i32) -> ThreadStatus {
+        unsafe {
+            lua_pcall(self.state, nargs, nres, err_func).into()
+        }
+    }
     
     /// Registers function `f` as a Lua global named `name`
     /// 
@@ -322,6 +354,9 @@ impl State {
         }
     }
 
+
+    /// Validates that the userdata at `idx` is an instance of metatable `t`
+    /// and returns it cast as struct `T`, otherwise returns `None`
     pub fn check_userdata<T>(&mut self, idx: i32, t: &str) -> Option<*mut T> {
         unsafe {
             let udata = luaL_checkudata(self.state, idx, CString::new(t).unwrap().as_ptr());
@@ -388,6 +423,29 @@ impl State {
     pub fn push<T>(&mut self, val: T) where T: LuaValue {
         val.push_val(self.state);
     }
+    
+    /// Push a new nil value onto the Lua stack.
+    pub fn push_nil(&mut self) {
+        unsafe {
+            lua_pushnil(self.state);
+        }
+    }
+
+    /// Gets a value from the globals object and pushes it to the 
+    /// top of the stack.
+    pub fn get_global(&mut self, name: &str) {
+        unsafe {
+            lua_getglobal(self.state, CString::new(name).unwrap().as_ptr());
+        }
+    }
+
+    /// Gets a value `name` from the table on the stack at `idx` and
+    /// and pushes the fetched value to the top of the stack.
+    pub fn get_field(&mut self, idx: i32, name: &str) {
+        unsafe {
+            lua_getfield(self.state, idx, CString::new(name).unwrap().as_ptr());
+        }
+    }
 
     /// Creates a new table and pushes it to the top of the stack
     pub fn new_table(&mut self) {
@@ -411,6 +469,22 @@ impl State {
         self.new_raw_userdata(mem::size_of::<T>()) as *mut T
     }
 
+    /// Registers all of the methods for LuaObject `T` as a global metatable
+    /// with name `struct_type` and leaves it on the top of the stack.
+    pub fn register_struct<T>(&mut self) where T: LuaObject {
+        unsafe {
+            if luaL_newmetatable(self.state, T::name()) == 1 {
+                self.new_table();
+                self.register_fns(None, T::lua_fns());
+
+                self.push_value(-1);
+                lua_setglobal(self.state, T::name());
+
+                self.set_field(-2, "__index");
+            }
+        }
+    }
+
     /// Allocates a userdata object on the Lua stack for storing a rust struct.
     /// This method also sets the userdata object's metatable to the metatable
     /// saved for `struct_type`, it will call `lua_fns` and create a new metatable
@@ -419,8 +493,10 @@ impl State {
     /// # Examples
     /// 
     /// ```
+    /// #[macro_use] extern crate luajit;
+    /// 
     /// use luajit::{State, LuaObject, c_int};
-    /// use luajit::ffi::{lua_State, luaL_Reg};
+    /// use luajit::ffi::luaL_Reg;
     /// 
     /// struct Point2D {
     ///     x: i32,
@@ -428,20 +504,18 @@ impl State {
     /// }
     /// 
     /// impl LuaObject for Point2D {
+    ///     fn name() -> *const i8 {
+    ///         c_str!("Point2D")
+    ///     }
+    /// 
     ///     fn lua_fns() -> Vec<luaL_Reg> {
-    ///         vec!(luaL_Reg {
-    ///             name: b"add\x00".as_ptr() as *const i8,
-    ///             func: Some(Point2D::add),
-    ///         })
+    ///         vec!(lua_method!("add", Point2D, Point2D::add))
     ///     }
     /// }
     /// 
     /// impl Point2D {
-    ///     extern "C" fn add(state: *mut lua_State) -> c_int {
-    ///         let mut state = State::from_ptr(state);
-    ///         let point = unsafe { &*(state.check_userdata::<Point2D>(1, "Point2D").unwrap()) };
-    /// 
-    ///         state.push(point.x + point.y);
+    ///     fn add(&mut self, state: &mut State) -> c_int {
+    ///         state.push(self.x + self.y);
     /// 
     ///         1
     ///     }
@@ -454,32 +528,58 @@ impl State {
     ///     }
     /// }
     /// 
-    /// let mut state = State::new();
-    /// state.open_libs();
-    /// unsafe {
-    ///     *state.new_struct("Point2D") = Point2D::new();
+    /// 
+    /// fn main() {
+    ///     let mut state = State::new();
+    ///     state.open_libs();
+    ///     unsafe {
+    ///         // NOTE: The string passed to `new_struct` is the name of
+    ///         // the metatable created on the Lua state, and *MUST* be
+    ///         // the same name as the struct.
+    ///         *state.new_struct() = Point2D::new();
+    ///     }
+    ///     state.set_global("point");
+    ///     state.do_string(r#"print("point:add()""#);
     /// }
-    /// state.set_global("point");
-    /// state.do_string(r#"print("point:add()""#);
     /// ```
-    pub fn new_struct<T>(&mut self, struct_type: &str) -> *mut T where T: LuaObject {
+    pub fn new_struct<T>(&mut self) -> *mut T where T: LuaObject {
         let userdata = self.new_userdata(); 
 
         unsafe {
-            if luaL_newmetatable(self.state, CString::new(struct_type).unwrap().as_ptr()) == 1 {
-                self.new_table();
-                self.register_fns(None, T::lua_fns());
-
-                self.push_value(-1);
-                self.set_global(struct_type);
-
-                self.set_field(-2, "__index");
-            }
+            self.register_struct::<T>();
 
             lua_setmetatable(self.state, -2);
         }
 
         userdata
+    }
+
+    /// Maps to `luaL_loadfile`, this method validates that the file exists
+    /// before passing it into the Lua C API.
+    pub fn load_file(&mut self, path: &Path) -> Result<(), (ThreadStatus, String)> {
+        if path.is_file() {
+            let p = path.canonicalize().unwrap();
+            let full_path = p.to_string_lossy();
+            
+            unsafe {
+                let res: ThreadStatus = luaL_loadfile(self.state, CString::new(full_path.as_ref()).unwrap().as_ptr() as *const i8).into();
+                if res != ThreadStatus::Ok {
+                    Err((res, self.to_str(-1).unwrap_or_default().to_owned()))
+                } else {
+                    Ok(())
+                }
+            }
+        } else {
+            Err((ThreadStatus::FileError, "Path does not exist".to_owned()))
+        }
+    }
+
+    /// Equivalent of `luaL_dofile`, loads a file and then immediately executes
+    /// it with `pcall`, returning the result.
+    pub fn do_file(&mut self, path: &Path) -> Result<(), (ThreadStatus, String)> {
+        self.load_file(path).and_then(|_| {
+            self.pcall(0, LUA_MULTIRET, 0)
+        })
     }
 }
 
