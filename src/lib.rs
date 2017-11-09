@@ -9,11 +9,12 @@ pub use types::{LuaFunction, LuaObject};
 
 pub use libc::c_int;
 
-/// This macro can be used to automatically generate a `luaL_Reg`
-/// struct for the provided function, with name `name`
+/// This macro is used to wrap a rust function in an `extern "C"` trampoline
+/// to automatically pass a [`State`](state/struct.State.html) struct as the first
+/// argument instead of a `lua_State` raw pointer
 #[macro_export]
-macro_rules! lua_func {
-    ($name:expr, $method:path) => {
+macro_rules! lua_fn {
+    ($method:path) => {
         {
             #[allow(unused)]
             use luajit;
@@ -21,9 +22,20 @@ macro_rules! lua_func {
                 $method(&mut State::from_ptr(l))
             };
 
+            Some(trampoline)
+        }
+    }
+}
+
+/// This macro can be used to automatically generate a `luaL_Reg`
+/// struct for the provided function, with name `name`
+#[macro_export]
+macro_rules! lua_func {
+    ($name:expr, $method:path) => {
+        {
             luajit::ffi::lauxlib::luaL_Reg {
                 name: c_str!($name),
-                func: Some(trampoline),
+                func: lua_fn!($method),
             }
         }
     };
@@ -41,7 +53,7 @@ macro_rules! lua_method {
             use luajit;
             unsafe extern "C" fn trampoline(l: *mut luajit::ffi::lua_State) -> luajit::c_int {
                 let mut state = luajit::State::from_ptr(l);
-                let st = &mut *state.check_userdata::<$st>(1, stringify!($st)).unwrap();
+                let st = &mut *state.check_userdata::<$st>(1).unwrap();
 
                 $method(st, &mut state)
             };

@@ -26,13 +26,11 @@ impl LuaObject for Point2D {
 
 impl Point2D {
     fn new(state: &mut State) -> i32 {
-        unsafe {
-            *state.new_struct::<Point2D>() = Point2D {
-                x: 0,
-                y: 0,
-            };
-        }
-
+        state.push(Point2D {
+            x: 0,
+            y: 0,
+        });
+        
         1
     }
 

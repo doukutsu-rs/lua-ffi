@@ -66,12 +66,11 @@ pub fn test_new_struct() {
     let mut state = State::new();
     state.open_libs();
 
-    unsafe {
-        *state.new_struct() = Point2D {
-            x: 1,
-            y: 4,
-        };
-    }
+    state.push(Point2D {
+        x: 1,
+        y: 4,
+    });
+
     state.set_global("test");
 
     let res = state.do_string("test:setX(4)");

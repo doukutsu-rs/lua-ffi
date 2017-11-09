@@ -279,6 +279,13 @@ impl State {
         }
     }
 
+    /// Test if the value at `idx` on the stack is a userdata object
+    pub fn is_userdata(&mut self, idx: c_int) -> bool {
+        unsafe {
+            lua_isuserdata(self.state, idx) != 0
+        }
+    }
+
     /// Retrieves a string from the Lua stack.
     pub fn to_str(&mut self, idx: c_int) -> Option<&str> {
         let ptr = unsafe {
@@ -354,12 +361,44 @@ impl State {
         }
     }
 
+    /// Returns the userdata on the top of the Lua stack as a raw pointer
+    pub fn to_raw_userdata(&mut self, idx: c_int) -> Option<*mut c_void> {
+        if self.is_userdata(idx) {
+            unsafe {
+                Some(lua_touserdata(self.state, idx))
+            }
+        } else {
+            None
+        }
+    }
 
-    /// Validates that the userdata at `idx` is an instance of metatable `t`
-    /// and returns it cast as struct `T`, otherwise returns `None`
-    pub fn check_userdata<T>(&mut self, idx: i32, t: &str) -> Option<*mut T> {
+    /// Returns the userdata from the top of the Lua stack, cast as a pointer
+    /// to type `T`
+    /// 
+    /// See [`new_userdata`](#method.new_userdata) for more usage.
+    pub fn to_userdata<T>(&mut self, idx: c_int) -> Option<*mut T> {
+        self.to_raw_userdata(idx).map(|pt| pt as *mut T)
+    }
+
+    /// Validates that the userdata at `idx` has metatable `ty` from the Lua registry
+    /// and returns a pointer to the userdata object
+    pub fn check_userdata_ex<T>(&mut self, idx: c_int, ty: &str) -> Option<*mut T> {
         unsafe {
-            let udata = luaL_checkudata(self.state, idx, CString::new(t).unwrap().as_ptr());
+            let udata = luaL_checkudata(self.state, idx, CString::new(ty).unwrap().as_ptr());
+
+            if udata == ptr::null_mut() {
+                None
+            } else {
+                Some(udata as *mut T)
+            }
+        }
+    }
+
+    /// Validates that the userdata at `idx` is an instance of struct `T` where
+    /// `T` implements `LuaObject`, and returns a pointer to the userdata object
+    pub fn check_userdata<T>(&mut self, idx: i32) -> Option<*mut T> where T: LuaObject {
+        unsafe {
+            let udata = luaL_checkudata(self.state, idx, T::name());
 
             if udata == ptr::null_mut() {
                 None
@@ -420,6 +459,54 @@ impl State {
     /// state.push(5);
     /// state.push("Hello world!");
     /// ```
+    /// 
+    /// Can also be used with structs that implement `LuaObject`
+    /// 
+    /// ```
+    /// #[macro_use] extern crate luajit;
+    /// 
+    /// use luajit::{State, LuaObject, c_int};
+    /// use luajit::ffi::luaL_Reg;
+    /// 
+    /// struct Point2D {
+    ///     x: i32,
+    ///     y: i32,
+    /// }
+    /// 
+    /// impl LuaObject for Point2D {
+    ///     fn name() -> *const i8 {
+    ///         c_str!("Point2D")
+    ///     }
+    /// 
+    ///     fn lua_fns() -> Vec<luaL_Reg> {
+    ///         vec!(lua_method!("add", Point2D, Point2D::add))
+    ///     }
+    /// }
+    /// 
+    /// impl Point2D {
+    ///     fn add(&mut self, state: &mut State) -> c_int {
+    ///         state.push(self.x + self.y);
+    /// 
+    ///         1
+    ///     }
+    /// 
+    ///     fn new() -> Point2D {
+    ///         Point2D {
+    ///             x: 0,
+    ///             y: 0,
+    ///         }
+    ///     }
+    /// }
+    /// 
+    /// 
+    /// fn main() {
+    ///     let mut state = State::new();
+    ///     state.open_libs();
+    ///     state.push(Point2D::new());
+    ///     state.set_global("point");
+    ///     state.do_string(r#"print("point:add()""#);
+    /// }
+    /// ```
     pub fn push<T>(&mut self, val: T) where T: LuaValue {
         val.push_val(self.state);
     }
@@ -465,6 +552,58 @@ impl State {
     /// Allocates a new Lua userdata block of size `sizeof(T)` for
     /// use to store Rust objects on the Lua stack. The returned
     /// pointer is owned by the Lua state.
+    /// 
+    /// # Examples
+    /// 
+    /// Useful for pushing an arbitrary struct to the Lua stack
+    /// 
+    /// ```
+    /// extern crate luajit;
+    /// 
+    /// use luajit::State;
+    /// 
+    /// struct Point2D {
+    ///     x: i32,
+    ///     y: i32,
+    /// }
+    /// 
+    /// impl Point2D {
+    ///     fn add(&self) -> i32 {
+    ///         self.x + self.y
+    ///     }
+    ///     
+    ///     fn set_x(&mut self, x: i32) {
+    ///         self.x = x;
+    ///     }
+    /// 
+    ///     fn set_y(&mut self, y: i32) {
+    ///         self.y = y;
+    ///     }
+    /// 
+    ///     fn new() -> Point2D {
+    ///         Point2D {
+    ///             x: 0,
+    ///             y: 0,
+    ///         }
+    ///     }
+    /// }
+    /// 
+    /// 
+    /// fn main() {
+    ///     let mut state = State::new();
+    ///     state.open_libs();
+    ///     unsafe {
+    ///         *state.new_userdata() = Point2D::new();
+    ///     }
+    /// 
+    ///     let point: &mut Point2D = unsafe { &mut *state.to_userdata(-1).unwrap() };
+    ///     
+    ///     point.set_x(2);
+    ///     point.set_y(4);
+    /// 
+    ///     assert_eq!(point.add(), 6);
+    /// }
+    /// ```
     pub fn new_userdata<T>(&mut self) -> *mut T {
         self.new_raw_userdata(mem::size_of::<T>()) as *mut T
     }
@@ -489,60 +628,7 @@ impl State {
     /// This method also sets the userdata object's metatable to the metatable
     /// saved for `struct_type`, it will call `lua_fns` and create a new metatable
     /// to store in the Lua registry if one has not already been created.
-    /// 
-    /// # Examples
-    /// 
-    /// ```
-    /// #[macro_use] extern crate luajit;
-    /// 
-    /// use luajit::{State, LuaObject, c_int};
-    /// use luajit::ffi::luaL_Reg;
-    /// 
-    /// struct Point2D {
-    ///     x: i32,
-    ///     y: i32,
-    /// }
-    /// 
-    /// impl LuaObject for Point2D {
-    ///     fn name() -> *const i8 {
-    ///         c_str!("Point2D")
-    ///     }
-    /// 
-    ///     fn lua_fns() -> Vec<luaL_Reg> {
-    ///         vec!(lua_method!("add", Point2D, Point2D::add))
-    ///     }
-    /// }
-    /// 
-    /// impl Point2D {
-    ///     fn add(&mut self, state: &mut State) -> c_int {
-    ///         state.push(self.x + self.y);
-    /// 
-    ///         1
-    ///     }
-    /// 
-    ///     fn new() -> Point2D {
-    ///         Point2D {
-    ///             x: 0,
-    ///             y: 0,
-    ///         }
-    ///     }
-    /// }
-    /// 
-    /// 
-    /// fn main() {
-    ///     let mut state = State::new();
-    ///     state.open_libs();
-    ///     unsafe {
-    ///         // NOTE: The string passed to `new_struct` is the name of
-    ///         // the metatable created on the Lua state, and *MUST* be
-    ///         // the same name as the struct.
-    ///         *state.new_struct() = Point2D::new();
-    ///     }
-    ///     state.set_global("point");
-    ///     state.do_string(r#"print("point:add()""#);
-    /// }
-    /// ```
-    pub fn new_struct<T>(&mut self) -> *mut T where T: LuaObject {
+    pub(crate) fn new_struct<T>(&mut self) -> *mut T where T: LuaObject {
         let userdata = self.new_userdata(); 
 
         unsafe {
