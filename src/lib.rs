@@ -17,8 +17,7 @@ macro_rules! lua_fn {
     ($method:path) => {
         {
             #[allow(unused)]
-            use luajit;
-            unsafe extern "C" fn trampoline(l: *mut luajit::ffi::lua_State) -> luajit::c_int {
+            unsafe extern "C" fn trampoline(l: *mut $crate::ffi::lua_State) -> $crate::c_int {
                 $method(&mut State::from_ptr(l))
             };
 
@@ -33,7 +32,7 @@ macro_rules! lua_fn {
 macro_rules! lua_func {
     ($name:expr, $method:path) => {
         {
-            luajit::ffi::lauxlib::luaL_Reg {
+            $crate::ffi::lauxlib::luaL_Reg {
                 name: c_str!($name),
                 func: lua_fn!($method),
             }
@@ -50,15 +49,14 @@ macro_rules! lua_method {
     ($name:expr, $st:ty, $method:path) => {
         {
             #[allow(unused)]
-            use luajit;
-            unsafe extern "C" fn trampoline(l: *mut luajit::ffi::lua_State) -> luajit::c_int {
-                let mut state = luajit::State::from_ptr(l);
+            unsafe extern "C" fn trampoline(l: *mut $crate::ffi::lua_State) -> $crate::c_int {
+                let mut state = $crate::State::from_ptr(l);
                 let st = &mut *state.check_userdata::<$st>(1).unwrap();
 
                 $method(st, &mut state)
             };
 
-            luajit::ffi::lauxlib::luaL_Reg {
+            $crate::ffi::lauxlib::luaL_Reg {
                 name: c_str!($name),
                 func: Some(trampoline),
             }
