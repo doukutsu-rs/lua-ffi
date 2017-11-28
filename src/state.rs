@@ -504,7 +504,8 @@ impl State {
     ///     state.open_libs();
     ///     state.push(Point2D::new());
     ///     state.set_global("point");
-    ///     state.do_string(r#"print("point:add()""#);
+    ///     let res = state.do_string(r#"print(point:add())"#);
+    ///     assert_eq!(res, luajit::ThreadStatus::Ok);
     /// }
     /// ```
     pub fn push<T>(&mut self, val: T) where T: LuaValue {
