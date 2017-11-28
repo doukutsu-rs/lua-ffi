@@ -649,7 +649,8 @@ impl State {
             let full_path = p.to_string_lossy();
             
             unsafe {
-                let res: ThreadStatus = luaL_loadfile(self.state, CString::new(full_path.as_ref()).unwrap().as_ptr() as *const i8).into();
+                let cstr = CString::new(full_path.as_ref()).unwrap();
+                let res: ThreadStatus = luaL_loadfile(self.state, cstr.as_ptr() as *const i8).into();
                 if res != ThreadStatus::Ok {
                     Err((res, self.to_str(-1).unwrap_or_default().to_owned()))
                 } else {
