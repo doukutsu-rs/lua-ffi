@@ -32,11 +32,11 @@ test:nightly:
 pages:
   script:
   - cargo doc
-  - mkdir docs
-  - mv target/doc/* docs
+  - mkdir public
+  - mv target/doc/* public
   stage: deploy_docs
   artifacts:
     paths:
-    - docs/               
+    - public/               
   only:
   - master 
