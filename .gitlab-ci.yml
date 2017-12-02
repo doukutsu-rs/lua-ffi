@@ -31,7 +31,7 @@ test:nightly:
 pages:
   script:
   - cargo doc
-  stage: deploy_doc
+  stage: deploy_docs
   artifacts:
     paths:
     - target/doc/                
