@@ -1,6 +1,6 @@
-# Luajit RS [![Build Status](https://travis-ci.org/Dreae/luajit-rs.svg?branch=master)](https://travis-ci.org/Dreae/luajit-rs)
+# Luajit RS 
 
-[Documentation](https://dreae.github.io/luajit-rs/luajit)
+[Documentation](https://dreae.gitlab.io/luajit-rs/luajit)
 
 Crate for interfacing with LuaJIT from Rust, for running high-performance Lua code that
 can integrate with native-code written in rust.
