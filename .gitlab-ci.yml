@@ -8,9 +8,17 @@ before_script:
 - rustup toolchain add nightly
 - rustup update
 
-# Use cargo to test the project
 test:cargo:
   script:
   - cargo +stable test
   - cargo +beta test
   - cargo +nightly test
+
+pages:                      
+  script:
+  - cargo doc
+  artifacts:
+    paths:
+    - target/doc/                
+  only:
+  - master   
