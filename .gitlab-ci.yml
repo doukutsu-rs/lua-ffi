@@ -1,0 +1,12 @@
+image: "rust:latest"
+
+before_script:
+- apt-get update -yqq
+- apt-get install -yqq libluajit-5.1-dev
+
+# Use cargo to test the project
+test:cargo:
+  script:
+  - cargo +stable test
+  - cargo +beta test
+  - cargo +nightly test
