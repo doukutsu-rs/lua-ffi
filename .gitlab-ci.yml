@@ -3,6 +3,10 @@ image: "rust:latest"
 before_script:
 - apt-get update -yqq
 - apt-get install -yqq libluajit-5.1-dev
+- rustup toolchain add stable
+- rustup toolchain add beta
+- rustup toolchain add nightly
+- rustup update
 
 # Use cargo to test the project
 test:cargo:
