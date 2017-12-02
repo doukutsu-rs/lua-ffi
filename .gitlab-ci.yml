@@ -3,22 +3,37 @@ image: "rust:latest"
 before_script:
 - apt-get update -yqq
 - apt-get install -yqq libluajit-5.1-dev
-- rustup toolchain add stable
-- rustup toolchain add beta
-- rustup toolchain add nightly
 - rustup update
 
-test:cargo:
+stages:
+- test
+- deploy_docs
+
+test:stable:
+  before_script:
+  - rustup toolchain add stable
   script:
   - cargo +stable test
+  stage: test
+test:beta:
+  before_script:
+  - rustup toolchain add beta
+  script:
   - cargo +beta test
+  stage: test
+test:nightly:
+  before_script:
+  - rustup toolchain add nightly
+  script:
   - cargo +nightly test
+  stage: test
 
-pages:                      
+pages:
   script:
   - cargo doc
+  stage: deploy_doc
   artifacts:
     paths:
     - target/doc/                
   only:
-  - master   
+  - master 
