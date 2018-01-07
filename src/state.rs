@@ -443,6 +443,7 @@ impl State {
 
     /// Copys the value at `idx` to the top of the stack
     pub fn push_value(&mut self, idx: i32) {
+        self.checkstack(1);
         unsafe {
             lua_pushvalue(self.state, idx);
         }
@@ -514,6 +515,7 @@ impl State {
     
     /// Push a new nil value onto the Lua stack.
     pub fn push_nil(&mut self) {
+        self.checkstack(1);
         unsafe {
             lua_pushnil(self.state);
         }
@@ -522,6 +524,7 @@ impl State {
     /// Gets a value from the globals object and pushes it to the 
     /// top of the stack.
     pub fn get_global(&mut self, name: &str) {
+        self.checkstack(1);
         unsafe {
             lua_getglobal(self.state, CString::new(name).unwrap().as_ptr());
         }
@@ -530,6 +533,7 @@ impl State {
     /// Gets a value `name` from the table on the stack at `idx` and
     /// and pushes the fetched value to the top of the stack.
     pub fn get_field(&mut self, idx: i32, name: &str) {
+        self.checkstack(1);
         unsafe {
             lua_getfield(self.state, idx, CString::new(name).unwrap().as_ptr());
         }
@@ -537,6 +541,7 @@ impl State {
 
     /// Creates a new table and pushes it to the top of the stack
     pub fn new_table(&mut self) {
+        self.checkstack(1);
         unsafe {
             lua_newtable(self.state);
         }
@@ -545,8 +550,14 @@ impl State {
     /// Allocates a new Lua userdata block, and returns the pointer
     /// to it. The returned pointer is owned by the Lua state.
     pub fn new_raw_userdata(&mut self, sz: usize) -> *mut c_void {
+        self.checkstack(1);
         unsafe {
-            lua_newuserdata(self.state, sz)
+            let new_ptr = lua_newuserdata(self.state, sz);
+            if new_ptr == ptr::null_mut() {
+                panic!("Lua returned null pointer allocating new userdata");
+            }
+
+            new_ptr
         }
     }
 
@@ -668,6 +679,14 @@ impl State {
         self.load_file(path).and_then(|_| {
             self.pcall(0, LUA_MULTIRET, 0)
         })
+    }
+
+    /// Ensures that there are at least `n` free stack slots in the stack. Returns
+    /// false if it cannot grow the stack to that size.
+    pub fn checkstack(&mut self, n: usize) -> bool {
+        unsafe {
+            lua_checkstack(self.state, n as c_int) != 0
+        }
     }
 }
 
