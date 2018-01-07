@@ -73,3 +73,13 @@ fn do_file() {
     
     assert_eq!(res, Ok(()));
 }
+
+#[test]
+fn do_bad_file() {
+    let mut state = State::new();
+    state.open_libs();
+    
+    let res = state.do_file(Path::new("./tests/lua/test2.lua"));
+
+    assert!(res.is_err());
+}
