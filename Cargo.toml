@@ -1,6 +1,6 @@
 [package]
 name = "luajit"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Dreae <dreae@dreae.onl>"]
 build = "build.rs"
 description = "Rust crate for calling LuaJIT from Rust"

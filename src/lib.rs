@@ -1,3 +1,34 @@
+//! # LuaJIT RS
+//! 
+//! `luajit_rs` is a simple wrapper around the LuaJIT project, allowing it to
+//! be called from Rust easily and with minimal overhead. Most functions in this
+//! crate correspond directly to underlying Lua C API calls
+//! 
+//! # Examples
+//! 
+//! ```
+//! #[macro_use]
+//! extern crate luajit;
+//!
+//! use luajit::{c_int, State};
+//!
+//! fn return_42(state: &mut State) -> c_int {
+//!     state.push(42);
+//!
+//!     1
+//! }
+//!
+//! pub fn main() {
+//!     let mut state = State::new();
+//!     state.open_libs();
+//!     state.do_string(r#"print("Hello world!")"#);
+//!
+//!     state.push(lua_fn!(return_42));
+//!     state.set_global("return_42");
+//!     state.do_string(r#"print(return_42())"#);
+//! }
+//! ```
+
 extern crate libc;
 
 pub mod ffi;
