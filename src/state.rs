@@ -430,7 +430,14 @@ impl State {
     /// Registers all functions in `fns` on the global table `name`. If name
     /// is `None`, all functions are instead registered on the value on the top
     /// of the stack.
-    pub fn register_fns(&mut self, name: Option<&str>, fns: Vec<luaL_Reg>) {
+    pub fn register_fns(&mut self, name: Option<&str>, mut fns: Vec<luaL_Reg>) {
+        // Add a sentinel struct, even if one already exists adding a second
+        // shouldn't break anything and incur minimal overhead
+        fns.push(luaL_Reg {
+            name: ptr::null(),
+            func: None
+        });
+        
         match name {
             Some(s) => unsafe {
                 luaL_register(self.state, CString::new(s).unwrap().as_ptr(), fns.as_ptr());

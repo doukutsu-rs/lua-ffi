@@ -97,6 +97,20 @@ impl LuaValue for LuaFunction {
     }
 }
 
+impl LuaValue for Option<LuaFunction> {
+    fn push_val(self, l: *mut ffi::lua_State) {
+        if let Some(func) = self {
+            unsafe {
+                ffi::lua_pushcfunction(l, Some(func));
+            }
+        } else {
+            unsafe {
+                ffi::lua_pushnil(l);
+            }
+        }
+    }
+}
+
 impl <T> LuaValue for T where T: LuaObject {
     fn push_val(self, l: *mut ffi::lua_State) {
         let mut state = State::from_ptr(l);

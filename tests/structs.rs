@@ -90,3 +90,51 @@ pub fn test_new_struct() {
     );
     assert_eq!(res, ThreadStatus::Ok);
 }
+
+struct B {
+    pub val: i32
+}
+
+impl LuaObject for B {
+    fn name() -> *const i8 {
+        c_str!("B")
+    }
+
+    fn lua_fns() -> Vec<ffi::luaL_Reg> {
+        vec![
+            lua_method!("add", B, B::add),
+            ffi::luaL_Reg {
+                name: std::ptr::null(),
+                func: None
+            }
+        ]
+    }
+}
+
+impl B {
+    fn add(&mut self, state: &mut State) -> c_int {
+        let x = state.to_int(2).unwrap();
+        self.val += x;
+        state.push(self.val);
+
+        1
+    }
+}
+
+#[test]
+pub fn test_double_sentinel() {
+    let mut state = State::new();
+    state.open_libs();
+
+    state.push(B {
+        val: 1,
+    });
+
+    state.set_global("test");
+
+    let res = state.do_string("test:add(4)");
+    assert_eq!(res, ThreadStatus::Ok);
+
+    let res = state.do_string("if test:add(4) ~= 9 then error() end");
+    assert_eq!(res, ThreadStatus::Ok);
+}

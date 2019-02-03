@@ -12,16 +12,43 @@ pub use libc::c_int;
 /// This macro is used to wrap a rust function in an `extern "C"` trampoline
 /// to automatically pass a [`State`](state/struct.State.html) struct as the first
 /// argument instead of a `lua_State` raw pointer
+/// 
+/// # Examples
+/// 
+/// ```
+/// #[macro_use] extern crate luajit;
+///
+/// use luajit::{State, c_int, ThreadStatus};
+///
+/// fn return_42(state: &mut State) -> c_int {
+///     state.push(42);
+///
+///     1
+/// }
+///
+/// fn main() {
+///     let mut state = State::new();
+///     state.open_libs();
+///
+///     state.push(lua_fn!(return_42));
+///     state.set_global("return_42");
+///     let status = state.do_string("if return_42() ~= 42 then error() end");
+///     assert_eq!(status, ThreadStatus::Ok);
+///     
+///     // Equivalent
+///     state.register("return_42", lua_fn!(return_42).unwrap());
+/// }
+/// ```
 #[macro_export]
 macro_rules! lua_fn {
     ($method:path) => {
         {
             #[allow(unused)]
             unsafe extern "C" fn trampoline(l: *mut $crate::ffi::lua_State) -> $crate::c_int {
-                $method(&mut State::from_ptr(l))
+                $method(&mut $crate::State::from_ptr(l))
             };
 
-            Some(trampoline)
+            Some(trampoline as $crate::LuaFunction)
         }
     }
 }
