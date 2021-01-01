@@ -127,6 +127,7 @@ impl State {
     }
 
     /// Opens the Lua bit library on this state.
+    #[cfg(feature = "luajit-support")]
     pub fn open_bit(&mut self) {
         unsafe {
             luaopen_bit(self.state);
@@ -142,6 +143,7 @@ impl State {
     }
 
     /// Opens the Lua FFI library on this state.
+    #[cfg(feature = "luajit-support")]
     pub fn open_ffi(&mut self) {
         unsafe {
             luaopen_ffi(self.state);
