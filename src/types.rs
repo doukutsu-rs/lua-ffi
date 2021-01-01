@@ -1,6 +1,9 @@
-use super::ffi;
-use libc::{ptrdiff_t, c_int};
 use std::ffi::CString;
+use std::os::raw::c_schar;
+
+use libc::{c_int, ptrdiff_t};
+
+use super::ffi;
 use super::State;
 
 /// Represents any value that can be pushed onto the Lua stack
@@ -42,11 +45,11 @@ impl LuaValue for u64 {
     }
 }
 
-impl <'a> LuaValue for &'a str {
+impl<'a> LuaValue for &'a str {
     fn push_val(self, l: *mut ffi::lua_State) {
         let cstr = CString::new(self).unwrap();
         unsafe {
-            ffi::lua_pushstring(l, cstr.as_ptr());
+            ffi::lua_pushstring(l, cstr.as_ptr() as *const c_schar);
         }
     }
 }
@@ -56,7 +59,7 @@ impl LuaValue for String {
         let r: &str = self.as_ref();
         let cstr = CString::new(r).unwrap();
         unsafe {
-            ffi::lua_pushstring(l, cstr.as_ptr());
+            ffi::lua_pushstring(l, cstr.as_ptr() as *const c_schar);
         }
     }
 }
@@ -111,7 +114,7 @@ impl LuaValue for Option<LuaFunction> {
     }
 }
 
-impl <T> LuaValue for T where T: LuaObject {
+impl<T> LuaValue for T where T: LuaObject {
     fn push_val(self, l: *mut ffi::lua_State) {
         let mut state = State::from_ptr(l);
         unsafe {

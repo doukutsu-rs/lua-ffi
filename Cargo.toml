@@ -1,11 +1,11 @@
 [package]
-name = "luajit"
+name = "lua-ffi"
 version = "0.1.1"
 authors = ["Dreae <dreae@dreae.onl>"]
 build = "build.rs"
-description = "Rust crate for calling LuaJIT from Rust"
+description = "Rust crate for calling Lua from Rust"
 documentation = "https://dreae.gitlab.io/luajit-rs/luajit/"
-repository = "https://gitlab.com/Dreae/luajit-rs"
+repository = "https://gitlab.com/doukutsu-rs/lua-ffi"
 readme = "README.md"
 keywords = ["luajit", "lua"]
 category = ["external-ffi-bindings", "embedded", "api-bindings"]
@@ -13,3 +13,6 @@ license = "MIT"
 
 [dependencies]
 libc = "0.2.32"
+
+[build-dependencies]
+lua-src = "542.0.0"

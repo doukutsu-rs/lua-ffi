@@ -222,7 +222,7 @@ pub unsafe fn lua_isnoneornil(state: *mut lua_State, n: c_int) -> bool {
 pub unsafe fn lua_pushliteral(state: *mut lua_State, s: &'static str) {
     use std::ffi::CString;
     let c_str = CString::new(s).unwrap();
-    lua_pushlstring(state, c_str.as_ptr(), s.as_bytes().len());
+    lua_pushlstring(state, c_str.as_ptr() as *const c_schar, s.as_bytes().len());
 }
 
 #[inline(always)]

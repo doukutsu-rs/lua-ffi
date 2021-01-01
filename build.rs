@@ -1,3 +1,4 @@
 pub fn main() {
-    println!("cargo:rustc-link-lib=luajit-5.1");
+    let artifacts = lua_src::Build::new().build(lua_src::Lua51);
+    artifacts.print_cargo_metadata();
 }

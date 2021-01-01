@@ -1,10 +1,12 @@
-use super::ffi::*;
-use std::ffi::{CString, CStr};
-use libc::{c_int, c_void};
 use std::{mem, ptr};
+use std::ffi::{CStr, CString};
+use std::os::raw::{c_char, c_schar};
 use std::path::Path;
 
-use super::types::{LuaValue, LuaFunction, LuaObject};
+use libc::{c_int, c_void};
+
+use super::ffi::*;
+use super::types::{LuaFunction, LuaObject, LuaValue};
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum ThreadStatus {
@@ -15,7 +17,7 @@ pub enum ThreadStatus {
     MemoryError = LUA_ERRMEM as isize,
     MsgHandlerError = LUA_ERRERR as isize,
     FileError = LUA_ERRFILE as isize,
-    Unknown
+    Unknown,
 }
 
 impl From<c_int> for ThreadStatus {
@@ -35,7 +37,7 @@ impl From<c_int> for ThreadStatus {
 
 pub struct State {
     state: *mut lua_State,
-    owned: bool
+    owned: bool,
 }
 
 impl State {
@@ -44,7 +46,7 @@ impl State {
         unsafe {
             State {
                 state: lua_open(),
-                owned: true
+                owned: true,
             }
         }
     }
@@ -132,6 +134,7 @@ impl State {
     }
 
     /// Opens the LuaJIT JIT library on this state.
+    #[cfg(feature = "luajit-support")]
     pub fn open_jit(&mut self) {
         unsafe {
             luaopen_jit(self.state);
@@ -159,6 +162,17 @@ impl State {
         }
     }
 
+    /// Loads a script or bytecode from specified buffer.
+    pub fn load_buffer(&mut self, buf: &[u8], name: &str) -> ThreadStatus {
+        let cstr = CString::new(name).unwrap();
+
+        unsafe {
+            luaL_loadbuffer(self.state,
+                            buf.as_ptr() as *const c_schar, buf.len(),
+                            name.as_ptr() as *const c_schar).into()
+        }
+    }
+
     /// Executes an arbitrary string as Lua code.
     /// 
     /// # Examples
@@ -175,7 +189,7 @@ impl State {
     pub fn do_string(&mut self, s: &str) -> ThreadStatus {
         let cstr = CString::new(s).unwrap();
         unsafe {
-            luaL_dostring(self.state, cstr.as_ptr()).into()
+            luaL_dostring(self.state, cstr.as_ptr() as *const c_schar).into()
         }
     }
 
@@ -207,7 +221,7 @@ impl State {
             lua_pcall(self.state, nargs, nres, err_func).into()
         }
     }
-    
+
     /// Registers function `f` as a Lua global named `name`
     /// 
     /// # Examples
@@ -254,7 +268,7 @@ impl State {
     pub fn register(&mut self, name: &str, f: LuaFunction) {
         let name = CString::new(name).unwrap();
         unsafe {
-            lua_register(self.state, name.as_ptr(), Some(f));
+            lua_register(self.state, name.as_ptr() as *const c_schar, Some(f));
         }
     }
 
@@ -296,7 +310,7 @@ impl State {
             None
         } else {
             let cstr = unsafe {
-                CStr::from_ptr(ptr)
+                CStr::from_ptr(ptr as *const c_char)
             };
 
             match cstr.to_str() {
@@ -384,7 +398,7 @@ impl State {
     /// and returns a pointer to the userdata object
     pub fn check_userdata_ex<T>(&mut self, idx: c_int, ty: &str) -> Option<*mut T> {
         unsafe {
-            let udata = luaL_checkudata(self.state, idx, CString::new(ty).unwrap().as_ptr());
+            let udata = luaL_checkudata(self.state, idx, CString::new(ty).unwrap().as_ptr() as *const c_schar);
 
             if udata == ptr::null_mut() {
                 None
@@ -412,7 +426,7 @@ impl State {
     /// named `name`
     pub fn set_global(&mut self, name: &str) {
         unsafe {
-            lua_setglobal(self.state, CString::new(name).unwrap().as_ptr());
+            lua_setglobal(self.state, CString::new(name).unwrap().as_ptr() as *const c_schar);
         }
     }
 
@@ -423,7 +437,7 @@ impl State {
     /// `idx` and `v` is the value at the top of the stack
     pub fn set_field(&mut self, idx: i32, name: &str) {
         unsafe {
-            lua_setfield(self.state, idx, CString::new(name).unwrap().as_ptr());
+            lua_setfield(self.state, idx, CString::new(name).unwrap().as_ptr() as *const c_schar);
         }
     }
 
@@ -435,16 +449,26 @@ impl State {
         // shouldn't break anything and incur minimal overhead
         fns.push(luaL_Reg {
             name: ptr::null(),
-            func: None
+            func: None,
         });
-        
+
         match name {
             Some(s) => unsafe {
-                luaL_register(self.state, CString::new(s).unwrap().as_ptr(), fns.as_ptr());
+                luaL_register(self.state, CString::new(s).unwrap().as_ptr() as *const c_schar, fns.as_ptr());
             },
             None => unsafe {
                 luaL_register(self.state, ptr::null(), fns.as_ptr());
             }
+        }
+    }
+
+    /// Raises an error, similar to luaL_error but without support for formatted strings.
+    pub fn error(&mut self, err: &str) {
+        let cstr = CString::new(err).unwrap();
+
+        unsafe {
+            lua_pushstring(self.state, cstr.as_ptr() as *const c_schar);
+            lua_error(self.state);
         }
     }
 
@@ -519,7 +543,7 @@ impl State {
     pub fn push<T>(&mut self, val: T) where T: LuaValue {
         val.push_val(self.state);
     }
-    
+
     /// Push a new nil value onto the Lua stack.
     pub fn push_nil(&mut self) {
         self.checkstack(1);
@@ -533,7 +557,7 @@ impl State {
     pub fn get_global(&mut self, name: &str) {
         self.checkstack(1);
         unsafe {
-            lua_getglobal(self.state, CString::new(name).unwrap().as_ptr());
+            lua_getglobal(self.state, CString::new(name).unwrap().as_ptr() as *const c_schar);
         }
     }
 
@@ -542,7 +566,7 @@ impl State {
     pub fn get_field(&mut self, idx: i32, name: &str) {
         self.checkstack(1);
         unsafe {
-            lua_getfield(self.state, idx, CString::new(name).unwrap().as_ptr());
+            lua_getfield(self.state, idx, CString::new(name).unwrap().as_ptr() as *const c_schar);
         }
     }
 
@@ -648,7 +672,7 @@ impl State {
     /// saved for `struct_type`, it will call `lua_fns` and create a new metatable
     /// to store in the Lua registry if one has not already been created.
     pub(crate) fn new_struct<T>(&mut self) -> *mut T where T: LuaObject {
-        let userdata = self.new_userdata(); 
+        let userdata = self.new_userdata();
 
         unsafe {
             self.register_struct::<T>();
@@ -665,7 +689,7 @@ impl State {
         if path.is_file() {
             let p = path.canonicalize().unwrap();
             let full_path = p.to_string_lossy();
-            
+
             unsafe {
                 let cstr = CString::new(full_path.as_ref()).unwrap();
                 let res: ThreadStatus = luaL_loadfile(self.state, cstr.as_ptr() as *const i8).into();
