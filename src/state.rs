@@ -7,6 +7,7 @@ use libc::{c_int, c_void};
 
 use super::ffi::*;
 use super::types::{LuaFunction, LuaObject, LuaValue};
+use std::ptr::{null, null_mut};
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum ThreadStatus {
@@ -61,7 +62,7 @@ impl State {
     }
 
     /// Opens the Lua standard library on this state.
-    /// 
+    ///
     /// You can use the other `open_*` methods to fine tune
     /// what library functions should be available to Lua scripts.
     pub fn open_libs(&mut self) {
@@ -126,28 +127,6 @@ impl State {
         }
     }
 
-    /// Opens the Lua bit library on this state.
-    pub fn open_bit(&mut self) {
-        unsafe {
-            luaopen_bit(self.state);
-        }
-    }
-
-    /// Opens the LuaJIT JIT library on this state.
-    #[cfg(feature = "luajit-support")]
-    pub fn open_jit(&mut self) {
-        unsafe {
-            luaopen_jit(self.state);
-        }
-    }
-
-    /// Opens the Lua FFI library on this state.
-    pub fn open_ffi(&mut self) {
-        unsafe {
-            luaopen_ffi(self.state);
-        }
-    }
-
     /// Sets the top of the stack to the valid index `idx`
     pub fn settop(&mut self, idx: i32) {
         unsafe {
@@ -164,25 +143,23 @@ impl State {
 
     /// Loads a script or bytecode from specified buffer.
     pub fn load_buffer(&mut self, buf: &[u8], name: &str) -> ThreadStatus {
-        let cstr = CString::new(name).unwrap();
-
         unsafe {
-            luaL_loadbuffer(self.state,
+            luaL_loadbufferx(self.state,
                             buf.as_ptr() as *const c_schar, buf.len(),
-                            name.as_ptr() as *const c_schar).into()
+                            name.as_ptr() as *const c_schar, null()).into()
         }
     }
 
     /// Executes an arbitrary string as Lua code.
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```
     /// use luajit::{State, ThreadStatus};
-    /// 
+    ///
     /// let mut state = State::new(); // Create new Lua state
     /// state.open_base(); // Need to open base libraries for `print` to be available
-    /// 
+    ///
     /// let status = state.do_string(r#"print("Hello world!")"#);
     /// assert!(status == ThreadStatus::Ok);
     /// ```
@@ -194,10 +171,10 @@ impl State {
     }
 
     /// Maps to `lua_call`, calls the function on the top of the
-    /// stack. 
+    /// stack.
     pub fn call(&mut self, nargs: i32, nres: i32) {
         unsafe {
-            lua_call(self.state, nargs, nres);
+            lua_callk(self.state, nargs, nres, 0, None);
         }
     }
 
@@ -205,7 +182,7 @@ impl State {
     /// the string on the top of the stack as an `Err` result.
     pub fn pcall(&mut self, nargs: i32, nres: i32, err_func: i32) -> Result<(), (ThreadStatus, String)> {
         let res: ThreadStatus = unsafe {
-            lua_pcall(self.state, nargs, nres, err_func).into()
+            lua_pcallk(self.state, nargs, nres, err_func, 0, None).into()
         };
 
         if res != ThreadStatus::Ok {
@@ -218,50 +195,50 @@ impl State {
     /// Maps directly to `lua_pcall` without additional handling.
     pub fn pcallx(&mut self, nargs: i32, nres: i32, err_func: i32) -> ThreadStatus {
         unsafe {
-            lua_pcall(self.state, nargs, nres, err_func).into()
+            lua_pcallk(self.state, nargs, nres, err_func, 0, None).into()
         }
     }
 
     /// Registers function `f` as a Lua global named `name`
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```
     /// use luajit::{State, ThreadStatus, c_int};
     /// use luajit::ffi::lua_State;
-    /// 
+    ///
     /// unsafe extern "C" fn hello(L: *mut lua_State) -> c_int {
     ///     println!("Hello world!");
-    /// 
+    ///
     ///     0
     /// }
-    /// 
+    ///
     /// let mut state = State::new();
     /// state.register("hello", hello);
-    /// 
+    ///
     /// let status = state.do_string("hello()");
     /// assert!(status == ThreadStatus::Ok);
     /// ```
-    /// 
+    ///
     /// Using an argument.
-    /// 
+    ///
     /// ```
     /// use luajit::{State, ThreadStatus, c_int};
     /// use luajit::ffi::lua_State;
-    /// 
+    ///
     /// unsafe extern "C" fn hello_name(l: *mut lua_State) -> c_int {
     ///     let mut state = State::from_ptr(l);
     ///     match state.to_str(1) {
     ///         Some(s) => println!("Hello {}", s),
     ///         None => println!("You have no name!"),
     ///     }
-    /// 
+    ///
     ///     0
     /// }
-    /// 
+    ///
     /// let mut state = State::new();
     /// state.register("hello", hello_name);
-    /// 
+    ///
     /// let status = state.do_string(r#"hello("world!")"#);
     /// assert!(status == ThreadStatus::Ok);
     /// ```
@@ -324,7 +301,17 @@ impl State {
     pub fn to_int(&mut self, idx: c_int) -> Option<i32> {
         if self.is_number(idx) {
             unsafe {
-                Some(lua_tointeger(self.state, idx) as i32)
+                Some(lua_tointegerx(self.state, idx, null_mut()) as i32)
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn to_uint(&mut self, idx: c_int) -> Option<u32> {
+        if self.is_number(idx) {
+            unsafe {
+                Some(lua_tointegerx(self.state, idx, null_mut()) as u32)
             }
         } else {
             None
@@ -335,7 +322,7 @@ impl State {
     pub fn to_long(&mut self, idx: c_int) -> Option<i64> {
         if self.is_number(idx) {
             unsafe {
-                Some(lua_tointeger(self.state, idx) as i64)
+                Some(lua_tointegerx(self.state, idx, null_mut()) as i64)
             }
         } else {
             None
@@ -357,7 +344,7 @@ impl State {
     pub fn to_float(&mut self, idx: c_int) -> Option<f32> {
         if self.is_number(idx) {
             unsafe {
-                Some(lua_tonumber(self.state, idx) as f32)
+                Some(lua_tonumberx(self.state, idx, null_mut()) as f32)
             }
         } else {
             None
@@ -368,7 +355,7 @@ impl State {
     pub fn to_double(&mut self, idx: c_int) -> Option<f64> {
         if self.is_number(idx) {
             unsafe {
-                Some(lua_tonumber(self.state, idx) as f64)
+                Some(lua_tonumberx(self.state, idx, null_mut()) as f64)
             }
         } else {
             None
@@ -388,7 +375,7 @@ impl State {
 
     /// Returns the userdata from the top of the Lua stack, cast as a pointer
     /// to type `T`
-    /// 
+    ///
     /// See [`new_userdata`](#method.new_userdata) for more usage.
     pub fn to_userdata<T>(&mut self, idx: c_int) -> Option<*mut T> {
         self.to_raw_userdata(idx).map(|pt| pt as *mut T)
@@ -432,7 +419,7 @@ impl State {
 
     /// Sets the value of `name` on the table `t` pointed
     /// to by `idx` as the value on the top of the stack.
-    /// 
+    ///
     /// Equivalent to `t[name] = v` where `t` is the value at
     /// `idx` and `v` is the value at the top of the stack
     pub fn set_field(&mut self, idx: i32, name: &str) {
@@ -454,10 +441,18 @@ impl State {
 
         match name {
             Some(s) => unsafe {
-                luaL_register(self.state, CString::new(s).unwrap().as_ptr() as *const c_schar, fns.as_ptr());
+                // luaL_openlib(self.state, CString::new(s).unwrap().as_ptr() as *const c_schar, fns.as_ptr(), 0);
+                let name = CString::new(s).unwrap().as_ptr() as *const c_schar;
+                lua_getglobal(self.state, name);
+                if lua_isnil(self.state, -1) {
+                    lua_pop(self.state, 1);
+                    lua_newtable(self.state);
+                }
+                luaL_setfuncs(self.state, fns.as_ptr(), 0);
+                lua_setglobal(self.state, name);
             },
             None => unsafe {
-                luaL_register(self.state, ptr::null(), fns.as_ptr());
+                luaL_setfuncs(self.state, fns.as_ptr(), 0);
             }
         }
     }
@@ -481,47 +476,47 @@ impl State {
     }
 
     /// Pushes a LuaValue to the lua stack.
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// ```
     /// use luajit::State;
-    /// 
+    ///
     /// let mut state = State::new();
     /// state.push(5);
     /// state.push("Hello world!");
     /// ```
-    /// 
+    ///
     /// Can also be used with structs that implement `LuaObject`
-    /// 
+    ///
     /// ```
     /// #[macro_use] extern crate luajit;
-    /// 
+    ///
     /// use luajit::{State, LuaObject, c_int};
     /// use luajit::ffi::luaL_Reg;
-    /// 
+    ///
     /// struct Point2D {
     ///     x: i32,
     ///     y: i32,
     /// }
-    /// 
+    ///
     /// impl LuaObject for Point2D {
     ///     fn name() -> *const i8 {
     ///         c_str!("Point2D")
     ///     }
-    /// 
+    ///
     ///     fn lua_fns() -> Vec<luaL_Reg> {
     ///         vec!(lua_method!("add", Point2D, Point2D::add))
     ///     }
     /// }
-    /// 
+    ///
     /// impl Point2D {
     ///     fn add(&mut self, state: &mut State) -> c_int {
     ///         state.push(self.x + self.y);
-    /// 
+    ///
     ///         1
     ///     }
-    /// 
+    ///
     ///     fn new() -> Point2D {
     ///         Point2D {
     ///             x: 0,
@@ -529,8 +524,8 @@ impl State {
     ///         }
     ///     }
     /// }
-    /// 
-    /// 
+    ///
+    ///
     /// fn main() {
     ///     let mut state = State::new();
     ///     state.open_libs();
@@ -552,7 +547,7 @@ impl State {
         }
     }
 
-    /// Gets a value from the globals object and pushes it to the 
+    /// Gets a value from the globals object and pushes it to the
     /// top of the stack.
     pub fn get_global(&mut self, name: &str) {
         self.checkstack(1);
@@ -595,34 +590,34 @@ impl State {
     /// Allocates a new Lua userdata block of size `sizeof(T)` for
     /// use to store Rust objects on the Lua stack. The returned
     /// pointer is owned by the Lua state.
-    /// 
+    ///
     /// # Examples
-    /// 
+    ///
     /// Useful for pushing an arbitrary struct to the Lua stack
-    /// 
+    ///
     /// ```
     /// extern crate luajit;
-    /// 
+    ///
     /// use luajit::State;
-    /// 
+    ///
     /// struct Point2D {
     ///     x: i32,
     ///     y: i32,
     /// }
-    /// 
+    ///
     /// impl Point2D {
     ///     fn add(&self) -> i32 {
     ///         self.x + self.y
     ///     }
-    ///     
+    ///
     ///     fn set_x(&mut self, x: i32) {
     ///         self.x = x;
     ///     }
-    /// 
+    ///
     ///     fn set_y(&mut self, y: i32) {
     ///         self.y = y;
     ///     }
-    /// 
+    ///
     ///     fn new() -> Point2D {
     ///         Point2D {
     ///             x: 0,
@@ -630,20 +625,20 @@ impl State {
     ///         }
     ///     }
     /// }
-    /// 
-    /// 
+    ///
+    ///
     /// fn main() {
     ///     let mut state = State::new();
     ///     state.open_libs();
     ///     unsafe {
     ///         *state.new_userdata() = Point2D::new();
     ///     }
-    /// 
+    ///
     ///     let point: &mut Point2D = unsafe { &mut *state.to_userdata(-1).unwrap() };
-    ///     
+    ///
     ///     point.set_x(2);
     ///     point.set_y(4);
-    /// 
+    ///
     ///     assert_eq!(point.add(), 6);
     /// }
     /// ```
@@ -692,7 +687,7 @@ impl State {
 
             unsafe {
                 let cstr = CString::new(full_path.as_ref()).unwrap();
-                let res: ThreadStatus = luaL_loadfile(self.state, cstr.as_ptr() as *const i8).into();
+                let res: ThreadStatus = luaL_loadfilex(self.state, cstr.as_ptr() as *const i8, null()).into();
                 if res != ThreadStatus::Ok {
                     Err((res, self.to_str(-1).unwrap_or_default().to_owned()))
                 } else {

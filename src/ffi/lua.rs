@@ -2,22 +2,22 @@
 use libc::{c_int, c_uchar, c_schar, c_double, c_void, size_t, ptrdiff_t};
 use super::lauxlib::luaL_newstate;
 use std::ptr;
+use std::os::raw::c_uint;
 
-pub const LUA_VERSION: &'static [c_uchar] = b"Lua 5.1\x00";
-pub const LUA_RELEASE: &'static [c_uchar] = b"Lua 5.1.4\x00";
-pub const LUA_VERSION_NUM: c_int = 501;
+pub const LUA_VERSION: &'static [c_uchar] = b"Lua 5.3\x00";
+pub const LUA_RELEASE: &'static [c_uchar] = b"Lua 5.3.6\x00";
+pub const LUA_VERSION_NUM: c_int = 503;
 
 pub const LUA_SIGNATURE: &'static [c_uchar] = b"\033Lua\x00";
 
 pub const LUA_MULTIRET: c_int = -1;
 
+pub const LUAI_MAXSTACK: c_int = 1000000;
 pub const LUA_REGISTRYINDEX: c_int = -10000;
-pub const LUA_ENVIRONINDEX: c_int = -10001;
-pub const LUA_GLOBALSINDEX: c_int = -10002;
 
 #[inline(always)]
 pub fn lua_upvalueindex(i: i32) -> c_int {
-    LUA_GLOBALSINDEX - i
+    (-LUAI_MAXSTACK - 1000) - i
 }
 
 pub const LUA_OK: c_int = 0;
@@ -25,7 +25,8 @@ pub const LUA_YIELD: c_int = 1;
 pub const LUA_ERRRUN: c_int = 2;
 pub const LUA_ERRSYNTAX: c_int = 3;
 pub const LUA_ERRMEM: c_int = 4;
-pub const LUA_ERRERR: c_int = 5;
+pub const LUA_ERRGCMM: c_int = 5;
+pub const LUA_ERRERR: c_int = 6;
 
 pub type lua_State = c_void;
 
@@ -53,6 +54,10 @@ pub const LUA_MINSTACK: c_int = 20;
 // These are constant in LuaJIT
 pub type lua_Number = c_double;
 pub type lua_Integer = ptrdiff_t;
+pub type lua_Unsigned = usize;
+pub type lua_KContext = ptrdiff_t;
+pub type lua_KFunction = Option<unsafe extern "C" fn(s: *mut lua_State, status: i32, ctx: lua_KContext) -> c_int>;
+
 pub const LUA_IDSIZE: size_t = 60;
 
 pub const LUA_GCSTOP: c_int = 0;
@@ -91,11 +96,11 @@ extern "C" {
     pub fn lua_rawequal(L: *mut lua_State, idx1: c_int, idx2: c_int) -> c_int;
     pub fn lua_lessthan(L: *mut lua_State, idx1: c_int, idx2: c_int) -> c_int;
 
-    pub fn lua_tonumber(L: *mut lua_State, idx: c_int) -> lua_Number;
-    pub fn lua_tointeger(L: *mut lua_State, idx: c_int) -> lua_Integer;
+    pub fn lua_tonumberx(L: *mut lua_State, idx: c_int, is_num: *mut c_int) -> lua_Number;
+    pub fn lua_tointegerx(L: *mut lua_State, idx: c_int, is_num: *mut c_int) -> lua_Integer;
     pub fn lua_toboolean(L: *mut lua_State, idx: c_int) -> c_int;
     pub fn lua_tolstring(L: *mut lua_State, idx: c_int, len: *mut size_t) -> *const c_schar;
-    pub fn lua_objlen(L: *mut lua_State, idx: c_int) -> size_t;
+    pub fn lua_rawlen(L: *mut lua_State, idx: c_int) -> size_t;
     pub fn lua_tocfunction(L: *mut lua_State, idx: c_int) -> lua_CFunction;
     pub fn lua_touserdata(L: *mut lua_State, idx: c_int) -> *mut c_void;
     pub fn lua_tothread(L: *mut lua_State, idx: c_int) -> *mut lua_State;
@@ -114,32 +119,32 @@ extern "C" {
     pub fn lua_pushthread(L: *mut lua_State) -> c_int;
 
     // Get functions
-    pub fn lua_gettable(L: *mut lua_State, idx: c_int);
-    pub fn lua_getfield(L: *mut lua_State, idx: c_int, k: *const c_schar);
-    pub fn lua_rawget(L: *mut lua_State, idx: c_int);
-    pub fn lua_rawgeti(L: *mut lua_State, idx: c_int, n: c_int);
+    pub fn lua_getglobal(L: *mut lua_State, name: *const c_schar) -> c_int;
+    pub fn lua_gettable(L: *mut lua_State, idx: c_int) -> c_int;
+    pub fn lua_getfield(L: *mut lua_State, idx: c_int, k: *const c_schar) -> c_int;
+    pub fn lua_rawget(L: *mut lua_State, idx: c_int) -> c_int;
+    pub fn lua_rawgeti(L: *mut lua_State, idx: c_int, n: c_int) -> c_int;
     pub fn lua_createtable(L: *mut lua_State, narr: c_int, nrec: c_int);
     pub fn lua_newuserdata(L: *mut lua_State, sz: size_t) -> *mut c_void;
     pub fn lua_getmetatable(L: *mut lua_State, objindex: c_int) -> c_int;
-    pub fn lua_getfenv(L: *mut lua_State, idx: c_int);
 
     // Set functions
     pub fn lua_settable(L: *mut lua_State, idx: c_int);
+    pub fn lua_setglobal(L: *mut lua_State, name: *const c_schar);
     pub fn lua_setfield(L: *mut lua_State, idx: c_int, k: *const c_schar);
     pub fn lua_rawset(L: *mut lua_State, idx: c_int);
     pub fn lua_rawseti(L: *mut lua_State, idx: c_int, n: c_int);
     pub fn lua_setmetatable(L: *mut lua_State, objindex: c_int) -> c_int;
     pub fn lua_setfenv(L: *mut lua_State, idx: c_int) -> c_int;
 
-    pub fn lua_call(L: *mut lua_State, nargs: c_int, nresults: c_int);
-    pub fn lua_pcall(L: *mut lua_State, nargs: c_int, nresults: c_int, errfunc: c_int) -> c_int;
-    pub fn lua_cpcall(L: *mut lua_State, func: lua_CFunction, ud: *mut c_void) -> c_int;
-    pub fn lua_load(L: *mut lua_State, reader: lua_Reader, dt: *mut c_void, chunkname: *const c_schar) -> c_int;
+    pub fn lua_callk(L: *mut lua_State, nargs: c_int, nresults: c_int, ctx: lua_KContext, k: lua_KFunction);
+    pub fn lua_pcallk(L: *mut lua_State, nargs: c_int, nresults: c_int, errfunc: c_int, ctx: lua_KContext, k: lua_KFunction) -> c_int;
+    pub fn lua_load(L: *mut lua_State, reader: lua_Reader, dt: *mut c_void, chunkname: *const c_schar, mode: *const c_schar) -> c_int;
 
-    pub fn lua_dump(L: *mut lua_State, writer: lua_Writer, data: *mut c_void) -> c_int;
+    pub fn lua_dump(L: *mut lua_State, writer: lua_Writer, data: *mut c_void, strip: c_int) -> c_int;
 
     pub fn lua_yield(L: *mut lua_State, nresults: c_int) -> c_int;
-    pub fn lua_resume(L: *mut lua_State, narg: c_int) -> c_int;
+    pub fn lua_resume(L: *mut lua_State, from: *mut lua_State, narg: c_int) -> c_int;
     pub fn lua_states(L: *mut lua_State) -> c_int;
 
     pub fn lua_gc(L: *mut lua_State, what: c_int, data: c_int) -> c_int;
@@ -175,7 +180,7 @@ pub unsafe fn lua_pushcfunction(state: *mut lua_State, f: lua_CFunction) {
 
 #[inline(always)]
 pub unsafe fn lua_strlen(state: *mut lua_State, i: c_int) -> size_t {
-    lua_objlen(state, i)
+    lua_rawlen(state, i)
 }
 
 #[inline(always)]
@@ -223,16 +228,6 @@ pub unsafe fn lua_pushliteral(state: *mut lua_State, s: &'static str) {
     use std::ffi::CString;
     let c_str = CString::new(s).unwrap();
     lua_pushlstring(state, c_str.as_ptr() as *const c_schar, s.as_bytes().len());
-}
-
-#[inline(always)]
-pub unsafe fn lua_setglobal(state: *mut lua_State, s: *const c_schar) {
-    lua_setfield(state, LUA_GLOBALSINDEX, s);
-}
-
-#[inline(always)]
-pub unsafe fn lua_getglobal(state: *mut lua_State, s: *const c_schar) {
-    lua_getfield(state, LUA_GLOBALSINDEX, s);
 }
 
 #[inline(always)]

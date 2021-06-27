@@ -2,6 +2,7 @@
 use libc::{c_int, c_schar, size_t, c_void};
 use super::lua::*;
 use std::ptr;
+use std::ptr::{null, null_mut};
 
 pub const LUA_ERRFILE: c_int = LUA_ERRERR + 1;
 pub const LUAL_BUFFERSIZE: size_t = 8192;
@@ -13,8 +14,6 @@ pub struct luaL_Reg {
 }
 
 extern "C" {
-    pub fn luaL_openlib(L: *mut lua_State, libname: *const c_schar, l: *const luaL_Reg, nup: c_int);
-    pub fn luaL_register(L: *mut lua_State, libname: *const c_schar, l: *const luaL_Reg);
     pub fn luaL_getmetafield(L: *mut lua_State, obj: c_int, e: *const c_schar);
     pub fn luaL_callmeta(L: *mut lua_State, obj: c_int, e: *const c_schar);
     pub fn luaL_typerror(L: *mut lua_State, narg: c_int, tname: *const c_schar);
@@ -42,12 +41,11 @@ extern "C" {
     pub fn luaL_ref(L: *mut lua_State, t: c_int) -> c_int;
     pub fn luaL_unref(L: *mut lua_State, t: c_int, r: c_int);
 
-    pub fn luaL_loadfile(L: *mut lua_State, filename: *const c_schar) -> c_int;
-    pub fn luaL_loadbuffer(L: *mut lua_State, buff: *const c_schar, sz: size_t, name: *const c_schar) -> c_int;
     pub fn luaL_loadstring(L: *mut lua_State, s: *const c_schar) -> c_int;
 
     pub fn luaL_newstate() -> *mut lua_State;
 
+    pub fn luaL_setfuncs(L: *mut lua_State, l: *const luaL_Reg, nup: c_int);
     pub fn luaL_gsub(L: *mut lua_State, s: *const c_schar, p: *const c_schar, r: *const c_schar) -> *const c_schar;
     pub fn luaL_findtable(L: *mut lua_State, idx: c_int, fname: *const c_schar, szhint: size_t) -> *const c_schar;
 
@@ -92,9 +90,9 @@ pub unsafe fn luaL_typename(L: *mut lua_State, i: c_int) -> c_int {
 
 #[inline(always)]
 pub unsafe fn luaL_dofile(L: *mut lua_State, filename: *const c_schar) -> c_int {
-    let status = luaL_loadfile(L, filename);
+    let status = luaL_loadfilex(L, filename, null());
     if status == 0 {
-        lua_pcall(L, 0, LUA_MULTIRET, 0)
+        lua_pcallk(L, 0, LUA_MULTIRET, 0, 0, None)
     } else {
         status
     }
@@ -104,7 +102,7 @@ pub unsafe fn luaL_dofile(L: *mut lua_State, filename: *const c_schar) -> c_int 
 pub unsafe fn luaL_dostring(L: *mut lua_State, s: *const c_schar) -> c_int {
     let status = luaL_loadstring(L, s);
     if status == 0 {
-        lua_pcall(L, 0, LUA_MULTIRET, 0)
+        lua_pcallk(L, 0, LUA_MULTIRET, 0, 0, None)
     } else {
         status
     }
